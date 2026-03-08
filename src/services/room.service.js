@@ -6,6 +6,10 @@ const { logger } = require('../utils/logger');
 
 const ROOMS_CACHE_KEY = 'rooms:all';
 
+function isDuplicateKeyError(err) {
+  return err && err.code === 11000;
+}
+
 async function getAllRooms() {
   const cached = await getJSON(ROOMS_CACHE_KEY);
   if (cached) {
@@ -25,11 +29,18 @@ async function createRoom({ name, capacity, type }) {
     throw new AppError('name, capacity and type are required', 400, 'VALIDATION_ERROR');
   }
 
-  const room = await Room.create({ name, capacity, type });
+  try {
+    const room = await Room.create({ name, capacity, type });
 
-  await del(ROOMS_CACHE_KEY);
+    await del(ROOMS_CACHE_KEY);
 
-  return room;
+    return room;
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      throw new AppError('Room name already exists', 409, 'ROOM_ALREADY_EXISTS');
+    }
+    throw err;
+  }
 }
 
 async function updateRoom(roomId, updates) {
@@ -40,17 +51,24 @@ async function updateRoom(roomId, updates) {
     if (updates[key] !== undefined) payload[key] = updates[key];
   }
 
-  const room = await Room.findByIdAndUpdate(roomId, payload, {
-    new: true,
-    runValidators: true
-  });
+  try {
+    const room = await Room.findByIdAndUpdate(roomId, payload, {
+      new: true,
+      runValidators: true
+    });
 
-  if (!room) {
-    throw new AppError('Room not found', 404, 'NOT_FOUND');
+    if (!room) {
+      throw new AppError('Room not found', 404, 'NOT_FOUND');
+    }
+
+    await del(ROOMS_CACHE_KEY);
+    return room;
+  } catch (err) {
+    if (isDuplicateKeyError(err)) {
+      throw new AppError('Room name already exists', 409, 'ROOM_ALREADY_EXISTS');
+    }
+    throw err;
   }
-
-  await del(ROOMS_CACHE_KEY);
-  return room;
 }
 
 async function deleteRoom(roomId) {
