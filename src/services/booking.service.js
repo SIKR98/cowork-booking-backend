@@ -72,8 +72,10 @@ async function deleteRoom(roomId) {
 }
 
 module.exports = {
-  getAllRooms,
-  createRoom,
-  updateRoom,
-  deleteRoom
+  createBooking,
+  listBookingsForUser,
+  listAllBookings,
+  getBookingById,
+  updateBooking,
+  deleteBooking
 };
