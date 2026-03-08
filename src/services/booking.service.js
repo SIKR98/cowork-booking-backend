@@ -1,122 +1,79 @@
-const Booking = require('../models/Booking');
 const Room = require('../models/Room');
+const Booking = require('../models/Booking');
 const { AppError } = require('../utils/AppError');
+const { getJSON, setJSON, del } = require('./cache.service');
+const { logger } = require('../utils/logger');
 
-/**
- * Overlap-regel:
- * En ny bokning [start, end) krockar om det finns en befintlig bokning där:
- * existing.startTime < newEnd AND existing.endTime > newStart
- */
-async function assertRoomAvailable(roomId, startTime, endTime, excludeBookingId = null) {
-  const query = {
-    roomId,
-    startTime: { $lt: endTime },
-    endTime: { $gt: startTime },
-  };
+const ROOMS_CACHE_KEY = 'rooms:all';
 
-  if (excludeBookingId) {
-    query._id = { $ne: excludeBookingId };
+async function getAllRooms() {
+  const cached = await getJSON(ROOMS_CACHE_KEY);
+  if (cached) {
+    logger.info({ key: ROOMS_CACHE_KEY, count: cached.length }, 'Rooms served from Redis cache');
+    return cached;
   }
 
-  const conflict = await Booking.findOne(query);
-  if (conflict) {
-    throw new AppError('Room is already booked for that time range', 409, 'ROOM_UNAVAILABLE');
-  }
+  const rooms = await Room.find().sort({ createdAt: -1 });
+  await setJSON(ROOMS_CACHE_KEY, rooms);
+  logger.info({ key: ROOMS_CACHE_KEY, count: rooms.length }, 'Rooms cached in Redis');
+
+  return rooms;
 }
 
-function parseAndValidateTimes(startTime, endTime) {
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    throw new AppError('Invalid startTime or endTime', 400, 'VALIDATION_ERROR');
-  }
-  if (end <= start) {
-    throw new AppError('endTime must be after startTime', 400, 'VALIDATION_ERROR');
+async function createRoom({ name, capacity, type }) {
+  if (!name || capacity === undefined || !type) {
+    throw new AppError('name, capacity and type are required', 400, 'VALIDATION_ERROR');
   }
 
-  return { start, end };
+  const room = await Room.create({ name, capacity, type });
+
+  await del(ROOMS_CACHE_KEY);
+
+  return room;
 }
 
-async function createBooking({ roomId, userId, startTime, endTime }) {
-  if (!roomId || !userId || !startTime || !endTime) {
-    throw new AppError('roomId, startTime and endTime are required', 400, 'VALIDATION_ERROR');
+async function updateRoom(roomId, updates) {
+  const allowed = ['name', 'capacity', 'type'];
+  const payload = {};
+
+  for (const key of allowed) {
+    if (updates[key] !== undefined) payload[key] = updates[key];
   }
 
-  // Kontrollera att rummet finns
-  const roomExists = await Room.exists({ _id: roomId });
-  if (!roomExists) throw new AppError('Room not found', 404, 'NOT_FOUND');
-
-  const { start, end } = parseAndValidateTimes(startTime, endTime);
-
-  await assertRoomAvailable(roomId, start, end);
-
-  const booking = await Booking.create({
-    roomId,
-    userId,
-    startTime: start,
-    endTime: end,
+  const room = await Room.findByIdAndUpdate(roomId, payload, {
+    new: true,
+    runValidators: true
   });
 
-  return booking;
+  if (!room) {
+    throw new AppError('Room not found', 404, 'NOT_FOUND');
+  }
+
+  await del(ROOMS_CACHE_KEY);
+  return room;
 }
 
-async function listBookingsForUser(userId) {
-  return Booking.find({ userId })
-    .populate('roomId')
-    .sort({ startTime: 1 });
-}
+async function deleteRoom(roomId) {
+  const room = await Room.findByIdAndDelete(roomId);
 
-async function listAllBookings() {
-  return Booking.find()
-    .populate('roomId')
-    .populate('userId', 'username role')
-    .sort({ startTime: 1 });
-}
+  if (!room) {
+    throw new AppError('Room not found', 404, 'NOT_FOUND');
+  }
 
-async function getBookingById(id) {
-  const booking = await Booking.findById(id);
-  if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
-  return booking;
-}
+  const deletedBookings = await Booking.deleteMany({ roomId });
 
-async function updateBooking(bookingId, { roomId, startTime, endTime }) {
-  const booking = await getBookingById(bookingId);
+  logger.info(
+    { roomId, deletedBookingsCount: deletedBookings.deletedCount },
+    'Room deleted with cascading booking delete'
+  );
 
-  // Om roomId inte skickas in, behåll samma
-  const newRoomId = roomId || booking.roomId.toString();
-
-  // Om tider inte skickas in, behåll samma
-  const newStartTime = startTime || booking.startTime;
-  const newEndTime = endTime || booking.endTime;
-
-  const { start, end } = parseAndValidateTimes(newStartTime, newEndTime);
-
-  // Kontrollera att rummet finns (om roomId ändras eller om den skickas)
-  const roomExists = await Room.exists({ _id: newRoomId });
-  if (!roomExists) throw new AppError('Room not found', 404, 'NOT_FOUND');
-
-  await assertRoomAvailable(newRoomId, start, end, bookingId);
-
-  booking.roomId = newRoomId;
-  booking.startTime = start;
-  booking.endTime = end;
-  await booking.save();
-
-  return booking;
-}
-
-async function deleteBooking(bookingId) {
-  const booking = await Booking.findByIdAndDelete(bookingId);
-  if (!booking) throw new AppError('Booking not found', 404, 'NOT_FOUND');
-  return booking;
+  await del(ROOMS_CACHE_KEY);
+  return room;
 }
 
 module.exports = {
-  createBooking,
-  listBookingsForUser,
-  listAllBookings,
-  getBookingById,
-  updateBooking,
-  deleteBooking,
+  getAllRooms,
+  createRoom,
+  updateRoom,
+  deleteRoom
 };

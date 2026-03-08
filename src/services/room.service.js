@@ -1,4 +1,5 @@
 const Room = require('../models/Room');
+const Booking = require('../models/Booking');
 const { AppError } = require('../utils/AppError');
 const { getJSON, setJSON, del } = require('./cache.service');
 const { logger } = require('../utils/logger');
@@ -26,7 +27,6 @@ async function createRoom({ name, capacity, type }) {
 
   const room = await Room.create({ name, capacity, type });
 
-  // Invalidate rooms list cache
   await del(ROOMS_CACHE_KEY);
 
   return room;
@@ -35,12 +35,19 @@ async function createRoom({ name, capacity, type }) {
 async function updateRoom(roomId, updates) {
   const allowed = ['name', 'capacity', 'type'];
   const payload = {};
+
   for (const key of allowed) {
     if (updates[key] !== undefined) payload[key] = updates[key];
   }
 
-  const room = await Room.findByIdAndUpdate(roomId, payload, { new: true, runValidators: true });
-  if (!room) throw new AppError('Room not found', 404, 'NOT_FOUND');
+  const room = await Room.findByIdAndUpdate(roomId, payload, {
+    new: true,
+    runValidators: true
+  });
+
+  if (!room) {
+    throw new AppError('Room not found', 404, 'NOT_FOUND');
+  }
 
   await del(ROOMS_CACHE_KEY);
   return room;
@@ -48,7 +55,17 @@ async function updateRoom(roomId, updates) {
 
 async function deleteRoom(roomId) {
   const room = await Room.findByIdAndDelete(roomId);
-  if (!room) throw new AppError('Room not found', 404, 'NOT_FOUND');
+
+  if (!room) {
+    throw new AppError('Room not found', 404, 'NOT_FOUND');
+  }
+
+  const deletedBookings = await Booking.deleteMany({ roomId });
+
+  logger.info(
+    { roomId, deletedBookingsCount: deletedBookings.deletedCount },
+    'Room deleted with cascading booking delete'
+  );
 
   await del(ROOMS_CACHE_KEY);
   return room;
@@ -58,5 +75,5 @@ module.exports = {
   getAllRooms,
   createRoom,
   updateRoom,
-  deleteRoom,
+  deleteRoom
 };
