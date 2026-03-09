@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const Booking = require('../models/Booking');
 const { AppError } = require('../utils/AppError');
 
 async function getAllUsers() {
@@ -15,6 +16,8 @@ async function deleteUser(userId) {
   if (!user) {
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
+
+  await Booking.deleteMany({ userId });
 
   return user;
 }
