@@ -1,4 +1,5 @@
 const Notification = require("../models/Notification");
+const { emitToUser } = require("./socket.service");
 
 async function createNotification({
   recipientUserId,
@@ -7,13 +8,18 @@ async function createNotification({
   message,
   metadata = {}
 }) {
-  return Notification.create({
+  const notification = await Notification.create({
     recipientUserId,
     type,
     title,
     message,
     metadata
   });
+
+  // skicka realtime notification till användaren
+  emitToUser(recipientUserId.toString(), "notification", notification);
+
+  return notification;
 }
 
 async function listNotificationsForUser(userId) {

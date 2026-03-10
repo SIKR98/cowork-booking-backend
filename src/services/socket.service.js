@@ -14,14 +14,15 @@ function initSocket(server, { corsOrigin }) {
     cors: { origin: corsOrigin, credentials: true },
   });
 
-  // Socket auth: token skickas via socket.handshake.auth.token
+  // Socket auth
   io.use((socket, next) => {
     try {
       const token = socket.handshake?.auth?.token;
       if (!token) return next(new Error('Missing token'));
 
       const payload = jwt.verify(token, env.JWT_SECRET);
-      socket.user = payload; // { sub, role, username, iat, exp }
+      socket.user = payload;
+
       return next();
     } catch (err) {
       return next(new Error('Invalid token'));
@@ -32,9 +33,11 @@ function initSocket(server, { corsOrigin }) {
     const userId = socket.user.sub;
     const role = socket.user.role;
 
-    // Join rooms för riktade notiser
     socket.join(`user:${userId}`);
-    if (role === 'Admin') socket.join('role:Admin');
+
+    if (role === 'Admin') {
+      socket.join('role:Admin');
+    }
 
     logger.info({ userId, role }, 'Socket connected');
 
@@ -53,4 +56,25 @@ function getIO() {
   return io;
 }
 
-module.exports = { initSocket, getIO };
+/**
+ * Emit event to a specific user
+ */
+function emitToUser(userId, event, payload) {
+  if (!io) return;
+  io.to(`user:${userId}`).emit(event, payload);
+}
+
+/**
+ * Emit event to all admins
+ */
+function emitToAdmins(event, payload) {
+  if (!io) return;
+  io.to('role:Admin').emit(event, payload);
+}
+
+module.exports = {
+  initSocket,
+  getIO,
+  emitToUser,
+  emitToAdmins
+};
