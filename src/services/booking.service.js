@@ -1,6 +1,8 @@
 const Booking = require('../models/Booking');
 const Room = require('../models/Room');
 const { AppError } = require('../utils/AppError');
+const { createNotification } = require('./notification.service');
+const User = require('../models/User');
 
 /**
  * Overlap-regel:
@@ -58,6 +60,22 @@ async function createBooking({ roomId, userId, startTime, endTime }) {
     userId,
     startTime: start,
     endTime: end
+  });
+
+  const room = await Room.findById(roomId).select('name');
+
+  await createNotification({
+    recipientUserId: userId,
+    type: 'booking_created',
+    title: 'Booking created',
+    message: `Your booking for "${room.name}" from ${start.toLocaleString()} to ${end.toLocaleString()} was created.`,
+    metadata: {
+      roomId: room._id,
+      bookingId: booking._id,
+      roomName: room.name,
+      newStartTime: start,
+      newEndTime: end
+    }
   });
 
   return booking;
