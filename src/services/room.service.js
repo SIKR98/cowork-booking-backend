@@ -1,8 +1,10 @@
 const Room = require('../models/Room');
 const Booking = require('../models/Booking');
+const User = require('../models/User');
 const { AppError } = require('../utils/AppError');
 const { getJSON, setJSON, del } = require('./cache.service');
 const { logger } = require('../utils/logger');
+const { createNotification } = require('./notification.service');
 
 const ROOMS_CACHE_KEY = 'rooms:all';
 
@@ -31,6 +33,23 @@ async function createRoom({ name, capacity, type }) {
 
   try {
     const room = await Room.create({ name, capacity, type });
+
+    const users = await User.find().select('_id');
+
+    await Promise.all(
+      users.map((u) =>
+        createNotification({
+          recipientUserId: u._id,
+          type: 'room_created',
+          title: 'Room created',
+          message: `A new room "${room.name}" is now available for booking.`,
+          metadata: {
+            roomId: room._id,
+            roomName: room.name
+          }
+        })
+      )
+    );
 
     await del(ROOMS_CACHE_KEY);
 
