@@ -71,14 +71,48 @@ async function updateRoom(roomId, updates) {
   }
 
   try {
+    const existingRoom = await Room.findById(roomId);
+
+    if (!existingRoom) {
+      throw new AppError('Room not found', 404, 'NOT_FOUND');
+    }
+
     const room = await Room.findByIdAndUpdate(roomId, payload, {
       new: true,
       runValidators: true
     });
 
-    if (!room) {
-      throw new AppError('Room not found', 404, 'NOT_FOUND');
+    const users = await User.find().select('_id');
+
+    let message = `Room "${existingRoom.name}" was updated.`;
+
+    if (existingRoom.name !== room.name) {
+      message = `Room "${existingRoom.name}" was changed to "${room.name}".`;
+    } else if (existingRoom.capacity !== room.capacity) {
+      message = `Room "${room.name}" capacity changed from ${existingRoom.capacity} to ${room.capacity}.`;
+    } else if (existingRoom.type !== room.type) {
+      message = `Room "${room.name}" type changed from ${existingRoom.type} to ${room.type}.`;
     }
+
+    await Promise.all(
+      users.map((u) =>
+        createNotification({
+          recipientUserId: u._id,
+          type: 'room_updated',
+          title: 'Room updated',
+          message,
+          metadata: {
+            roomId: room._id,
+            roomName: existingRoom.name,
+            newRoomName: room.name,
+            oldCapacity: existingRoom.capacity,
+            newCapacity: room.capacity,
+            oldType: existingRoom.type,
+            newType: room.type
+          }
+        })
+      )
+    );
 
     await del(ROOMS_CACHE_KEY);
     return room;
@@ -91,13 +125,54 @@ async function updateRoom(roomId, updates) {
 }
 
 async function deleteRoom(roomId) {
-  const room = await Room.findByIdAndDelete(roomId);
+  const room = await Room.findById(roomId);
 
   if (!room) {
     throw new AppError('Room not found', 404, 'NOT_FOUND');
   }
 
+  const bookingsForRoom = await Booking.find({ roomId }).select('_id userId startTime endTime');
+
+  const deletedRoom = await Room.findByIdAndDelete(roomId);
+
   const deletedBookings = await Booking.deleteMany({ roomId });
+
+  const users = await User.find().select('_id');
+
+  await Promise.all(
+    users.map((u) =>
+      createNotification({
+        recipientUserId: u._id,
+        type: 'room_deleted',
+        title: 'Room deleted',
+        message: `Room "${room.name}" was deleted.`,
+        metadata: {
+          roomId: room._id,
+          roomName: room.name
+        }
+      })
+    )
+  );
+
+  await Promise.all(
+    bookingsForRoom.map((booking) =>
+      createNotification({
+        recipientUserId: booking.userId,
+        type: 'room_deleted',
+        title: 'Room deleted',
+        message: `Room "${room.name}" was deleted. Your booking from ${new Date(
+          booking.startTime
+        ).toLocaleString()} to ${new Date(booking.endTime).toLocaleString()} was removed.`,
+        metadata: {
+          roomId: room._id,
+          bookingId: booking._id,
+          roomName: room.name,
+          oldStartTime: booking.startTime,
+          oldEndTime: booking.endTime
+        }
+      })
+    )
+  );
 
   logger.info(
     { roomId, deletedBookingsCount: deletedBookings.deletedCount },
@@ -105,7 +180,7 @@ async function deleteRoom(roomId) {
   );
 
   await del(ROOMS_CACHE_KEY);
-  return room;
+  return deletedRoom;
 }
 
 module.exports = {

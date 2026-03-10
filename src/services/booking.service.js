@@ -121,7 +121,11 @@ async function getBookingById(id) {
 async function updateBooking(bookingId, { roomId, startTime, endTime }) {
   const booking = await getBookingById(bookingId);
 
-  const newRoomId = roomId || booking.roomId.toString();
+  const oldStartTime = booking.startTime;
+  const oldEndTime = booking.endTime;
+  const oldRoomId = booking.roomId.toString();
+
+  const newRoomId = roomId || oldRoomId;
   const newStartTime = startTime || booking.startTime;
   const newEndTime = endTime || booking.endTime;
 
@@ -139,14 +143,52 @@ async function updateBooking(bookingId, { roomId, startTime, endTime }) {
   booking.endTime = end;
   await booking.save();
 
+  const room = await Room.findById(newRoomId).select('name');
+
+  await createNotification({
+    recipientUserId: booking.userId,
+    type: 'booking_updated',
+    title: 'Booking updated',
+    message: `Your booking for "${room.name}" was changed from ${new Date(oldStartTime).toLocaleString()}–${new Date(oldEndTime).toLocaleString()} to ${start.toLocaleString()}–${end.toLocaleString()}.`,
+    metadata: {
+      roomId: room._id,
+      bookingId: booking._id,
+      roomName: room.name,
+      oldStartTime,
+      oldEndTime,
+      newStartTime: start,
+      newEndTime: end
+    }
+  });
+
   return booking;
 }
 
 async function deleteBooking(bookingId) {
   const booking = await Booking.findByIdAndDelete(bookingId);
+
   if (!booking) {
     throw new AppError('Booking not found', 404, 'NOT_FOUND');
   }
+
+  const room = await Room.findById(booking.roomId).select('name');
+
+  await createNotification({
+    recipientUserId: booking.userId,
+    type: 'booking_canceled',
+    title: 'Booking canceled',
+    message: `Your booking for "${room?.name || 'room'}" from ${new Date(
+      booking.startTime
+    ).toLocaleString()} to ${new Date(booking.endTime).toLocaleString()} was canceled.`,
+    metadata: {
+      roomId: booking.roomId,
+      bookingId: booking._id,
+      roomName: room?.name,
+      oldStartTime: booking.startTime,
+      oldEndTime: booking.endTime
+    }
+  });
+
   return booking;
 }
 
