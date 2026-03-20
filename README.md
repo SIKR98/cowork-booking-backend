@@ -1,51 +1,9 @@
-# Cowork Booking Backend
+Backend – README
 
-Backend API for a coworking booking platform.
+This is the backend for the cowork booking system, built with Node.js and Express. It handles authentication, user management, room management, bookings, and notifications. The API is secured using JWT and supports role-based access for users and administrators.
 
-## Tech
-- Node.js + Express
-- MongoDB (Mongoose)
-- JWT + bcrypt
-- Redis (cache)
-- Socket.io (realtime notifications)
-- Pino (logging)
-- Deployment: Render
+The backend uses MongoDB Atlas as its database and Redis for caching frequently requested data such as rooms and bookings. It also integrates Socket.IO to send real-time notifications to connected users when relevant changes occur, such as booking updates or room modifications.
 
-## Run locally
+The application is deployed on Render and exposes a REST API consumed by the frontend. To run locally, install dependencies, configure environment variables for MongoDB, Redis, and JWT, and start the server. Logging and error handling are included to monitor system behavior and ensure stability.
 
-1) Install deps
-```bash
-npm install
-```
-
-2) Create `.env` from `.env.example`
-
-3) Start dev server
-```bash
-npm run dev
-```
-
-Health check:
-- `GET /health`
-
-## API (WIP)
-Auth:
-- `POST /register`
-- `POST /login`
-
-Rooms (Admin):
-- `POST /rooms`
-- `GET /rooms`
-- `PUT /rooms/:id`
-- `DELETE /rooms/:id`
-
-Bookings:
-- `POST /bookings`
-- `GET /bookings`
-- `PUT /bookings/:id`
-- `DELETE /bookings/:id`
-
-Socket events (WIP):
-- `booking:created`
-- `booking:updated`
-- `booking:deleted`
+This project fulfills the course requirements including authentication, role-based access, CRUD operations, real-time notifications, caching with Redis, and logging/error handling.
